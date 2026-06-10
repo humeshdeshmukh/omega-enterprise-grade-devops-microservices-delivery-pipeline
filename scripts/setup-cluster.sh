@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "🚀 Starting Omega Local Cluster Setup..."
 
 # 1. Start Minikube
@@ -8,10 +10,8 @@ echo "📦 Starting Minikube cluster..."
 minikube start --cpus=4 --memory=8192
 
 # Load .env variables to create K8s Secret for Gemini AIOps
-if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
-elif [ -f ../.env ]; then
-  export $(grep -v '^#' ../.env | xargs)
+if [ -f "$SCRIPT_DIR/../.env" ]; then
+  export $(grep -v '^#' "$SCRIPT_DIR/../.env" | xargs)
 fi
 
 if [ ! -z "$GEMINI_API_KEY" ]; then
@@ -25,11 +25,11 @@ fi
 # 2. Install ArgoCD
 echo "🐙 Installing ArgoCD..."
 kubectl create namespace argocd || true
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply --server-side --force-conflicts -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
 # 3. Apply ArgoCD Application Manifest
 echo "📄 Applying ArgoCD Application (GitOps Sync)..."
-kubectl apply -f ../k8s/argocd-application.yaml
+kubectl apply -f "$SCRIPT_DIR/../k8s/argocd-application.yaml"
 
 # 4. Install Monitoring Stack (Prometheus & Grafana)
 echo "📊 Installing Prometheus and Grafana..."
@@ -40,7 +40,7 @@ helm upgrade --install monitoring prometheus-community/kube-prometheus-stack --n
 
 # 5. Apply Custom Grafana Dashboard ConfigMap
 echo "📉 Injecting Custom Grafana Dashboard..."
-kubectl apply -f ../k8s/grafana-dashboard-configmap.yaml
+kubectl apply -f "$SCRIPT_DIR/../k8s/grafana-dashboard-configmap.yaml"
 
 # 6. Install Istio Service Mesh
 echo "🕸️ Installing Istio Service Mesh..."
