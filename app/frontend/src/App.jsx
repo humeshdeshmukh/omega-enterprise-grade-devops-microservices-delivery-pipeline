@@ -907,7 +907,7 @@ function App() {
     return (
       <div className="tab-pane-grid mesh-grid-layout">
         {/* Column Left: ArgoCD Reconciliation */}
-        <div className="grid-column flex-1-ratio">
+        <div className="grid-column">
           <div className="dashboard-card argocd-card">
             <div className="card-header">
               <svg className="card-icon color-argo" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -962,9 +962,8 @@ function App() {
           </div>
         </div>
 
-        {/* Column Right: Istio weights & Pod Monitor */}
-        <div className="grid-column flex-1-ratio">
-          {/* Card: Traffic Shifter */}
+        {/* Column Middle: Traffic Shifter */}
+        <div className="grid-column">
           <div className="dashboard-card istio-card">
             <div className="card-header">
               <svg className="card-icon color-mesh" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1011,8 +1010,10 @@ function App() {
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Card: Pods list */}
+        {/* Column Right: Pods list */}
+        <div className="grid-column">
           <div className="dashboard-card k8s-card">
             <div className="card-header">
               <svg className="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1067,7 +1068,7 @@ function App() {
     return (
       <div className="tab-pane-grid aiops-grid-layout">
         {/* Column Left: Gemini diagnostics */}
-        <div className="grid-column flex-2-ratio">
+        <div className="grid-column">
           <div className="dashboard-card ai-card cockpit-ai">
             <div className="card-header">
               <svg className="card-icon glow-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1138,9 +1139,8 @@ function App() {
           </div>
         </div>
 
-        {/* Column Right: PG database coordinator & compliance scan */}
-        <div className="grid-column flex-1-ratio">
-          {/* Card: Tasks coordinator */}
+        {/* Column Middle: PG database coordinator */}
+        <div className="grid-column">
           <div className="dashboard-card db-card compact-card">
             <div className="card-header">
               <svg className="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1214,8 +1214,10 @@ function App() {
               </ul>
             </div>
           </div>
+        </div>
 
-          {/* Card: CVE auditor */}
+        {/* Column Right: CVE Compliance Scan */}
+        <div className="grid-column">
           <div className="dashboard-card security-cve-card">
             <div className="card-header">
               <svg className="card-icon color-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
