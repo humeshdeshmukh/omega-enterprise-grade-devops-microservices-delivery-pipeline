@@ -21,14 +21,14 @@
 }
 
 /* Base Body Adjustments */
-body {
+html, body {
   background-color: var(--primary-bg);
   color: var(--text-main);
   font-family: var(--font-sans);
   margin: 0;
   padding: 0;
-  overflow-y: auto; /* Allow natural vertical scrolling on the page */
-  min-height: 100vh;
+  overflow: hidden;
+  height: 100vh;
   width: 100vw;
 }
 
@@ -36,10 +36,11 @@ body {
 .app-container.cockpit-view.sidebar-layout-active {
   display: flex;
   flex-direction: row;
-  min-height: 100vh;
+  height: 100vh;
   width: 100vw;
   padding: 0;
   background: radial-gradient(circle at 50% 0%, #151d30 0%, var(--primary-bg) 80%);
+  overflow: hidden;
 }
 
 /* Permanent Vertical Left Sidebar - Sticky locked */
@@ -174,10 +175,11 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
   padding: 20px 32px; /* Expanded padding */
   box-sizing: border-box;
   min-width: 0;
+  overflow: hidden;
 }
 
 .app-header {
@@ -212,6 +214,10 @@ body {
 
 /* Tab Content container mapping */
 .tab-content-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   margin-bottom: 15px;
 }
 
@@ -219,23 +225,29 @@ body {
 .tab-pane-grid {
   display: grid;
   gap: 20px; /* Increased from 18px */
+  height: 100%;
+  min-height: 0;
 }
 
 .overview-grid-layout {
   grid-template-columns: 1fr 1.2fr;
+  height: 100%;
 }
 
 .cicd-grid-layout {
   grid-template-columns: 1.4fr 1fr;
+  height: 100%;
 }
 
 /* Grids refactored to 3-column side-by-side structures */
 .mesh-grid-layout {
   grid-template-columns: repeat(3, 1fr);
+  height: 100%;
 }
 
 .aiops-grid-layout {
   grid-template-columns: 1.4fr 1fr 1fr;
+  height: 100%;
 }
 
 .span-all-columns {
@@ -247,6 +259,51 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px; /* Increased column gap spacing */
+  height: 100%;
+  min-height: 0;
+}
+
+/* Integrated CI/CD tab layout styles */
+.cicd-tab-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100%;
+  min-height: 0;
+}
+
+.pipeline-graph-section {
+  flex-shrink: 0;
+}
+
+.pipeline-bottom-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 20px;
+}
+
+.pipeline-bottom-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.logs-tab-menu .btn-tab {
+  transition: var(--transition);
+  font-weight: 600;
+}
+
+.logs-tab-menu .btn-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.logs-tab-menu .btn-tab.active {
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--text-header);
+  border-color: var(--accent-blue);
 }
 
 /* Sparkline Latency chart style */
@@ -682,15 +739,27 @@ body {
   box-sizing: border-box;
   width: 100%;
   margin-bottom: 0;
-  /* Removed min-height: 0 to allow card to expand to fit its contents */
+  flex: 1;
+  min-height: 0;
 }
 
 .dashboard-card:hover {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-.scrollable-panel-content {
-  /* Removed absolute height restrictions to avoid inner scroll constraints, let cards expand */
+.scrollable-panel-content,
+.events-feed-body,
+.overview-telemetry-body,
+.argo-dashboard-content,
+.istio-dashboard-content,
+.k8s-pods-table-wrapper,
+.ai-control-group,
+.items-list-container,
+.security-dashboard-content,
+.jenkins-dashboard-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
   padding-right: 4px;
 }
 
@@ -893,10 +962,12 @@ body {
   background: #07090e;
   border: 1.5px solid rgba(0, 0, 0, 0.5);
   border-radius: 6px;
-  height: 520px; /* Comfortable, tall layout! */
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   box-shadow: inset 0 2px 12px rgba(0,0,0,0.8);
+  margin-top: 10px;
 }
 
 .log-header {
@@ -1166,13 +1237,15 @@ body {
 
 /* AI diagnostics output - Comfortable height layout */
 .ai-output-container {
-  max-height: 480px; /* Locked maximum height for diagnostics report */
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
 .cockpit-output { margin-top: 12px; }
 .cockpit-output.flex-grow-output {
-  max-height: 480px;
+  flex: 1;
+  min-height: 0;
 }
 
 .output-header { padding: 6px 14px; }

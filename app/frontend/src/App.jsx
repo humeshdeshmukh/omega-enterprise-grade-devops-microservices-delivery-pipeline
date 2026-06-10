@@ -105,9 +105,17 @@ const MOCK_POD_LOGS = {
   ]
 };
 
+const INITIAL_MOCK_JENKINS_LOGS = {
+  '#24': `[INFO] Jenkins Pipeline Build #24 STARTED\n[INFO] Triggered by: VCS push from Humesh\n[INFO] Checking out branch master...\n[INFO] Running unit tests...\n- testBackendCRUD: PASSED\n- testAIOpsModel: PASSED\n- testTelemetryPulse: PASSED\n[INFO] Testing completed successfully (3 passed)\n[INFO] Compiling production assets with Node 20...\n[INFO] Docker image tag: omega-backend:1.2-rc1 built successfully.\n[INFO] Docker image tag: omega-frontend:1.2-rc1 built successfully.\n[INFO] Uploading artifacts to Nexus repository manager on port 8081...\n[INFO] Triggering ArgoCD GitOps webhook reconciliation...\n[INFO] Jenkins Build #24 SUCCESS!`,
+  '#23': `[INFO] Jenkins Pipeline Build #23 STARTED\n[INFO] Triggered by: VCS push from Humesh\n[INFO] Checking out branch master...\n[INFO] Running unit tests...\n- testBackendCRUD: PASSED\n- testTelemetryPulse: PASSED\n[INFO] Testing completed (2 passed)\n[INFO] Docker image tag: omega-backend:1.1.2 built successfully.\n[INFO] Uploading artifacts to Nexus...\n[INFO] Jenkins Build #23 SUCCESS`,
+  '#22': `[INFO] Jenkins Pipeline Build #22 STARTED\n[INFO] Triggered by: VCS push from Bob\n[INFO] Checking out branch feature-metrics...\n[INFO] Running unit tests...\n- testBackendCRUD: PASSED\n- testTelemetryPulse: FAILED (connection reset by peer)\n[ERROR] testTelemetryPulse failed at line 142.\n[ERROR] Cannot connect to Prometheus metrics service.\n[ERROR] Docker image compilation skipped.\n[ERROR] Jenkins Build #22 FAILED\n[INFO] Sending Slack alerting notification...`,
+  '#21': `[INFO] Jenkins Pipeline Build #21 STARTED\n[INFO] Triggered by: VCS push from Charlie\n[INFO] Checking out branch master...\n[INFO] Running unit tests...\n- testBackendCRUD: PASSED\n[INFO] Testing completed (1 passed)\n[INFO] Docker build success.\n[INFO] Jenkins Build #21 SUCCESS`
+};
+
 function App() {
   // Navigation State
-  const [activeTab, setActiveTab] = useState('overview'); // overview, cicd, mesh, aiops
+  const [activeTab, setActiveTab] = useState('overview'); // overview, pipeline, mesh, aiops
+  const [cicdLogTab, setCicdLogTab] = useState('jenkins'); // jenkins, stage
 
   // DB Items States
   const [dbItems, setDbItems] = useState([]);
@@ -154,6 +162,9 @@ function App() {
     { id: '#21', status: 'SUCCESS', branch: 'master', commit: '98d7f2a', duration: '2m 19s', date: '5 hours ago', author: 'Charlie' }
   ]);
   const [isJenkinsBuilding, setIsJenkinsBuilding] = useState(false);
+  const [jenkinsLogsMap, setJenkinsLogsMap] = useState(INITIAL_MOCK_JENKINS_LOGS);
+  const [selectedJenkinsBuild, setSelectedJenkinsBuild] = useState('#24');
+  const [activeJenkinsLog, setActiveJenkinsLog] = useState(INITIAL_MOCK_JENKINS_LOGS['#24']);
 
   // Live Telemetry states (Simulator)
   const [cpuLoad, setCpuLoad] = useState(42.5);
@@ -173,10 +184,6 @@ function App() {
   const [podLogs, setPodLogs] = useState([]);
   const [isPodDrawerOpen, setIsPodDrawerOpen] = useState(false);
 
-  // Terraform State approval
-  const [tfApproved, setTfApproved] = useState(false);
-  const [tfLock, setTfLock] = useState(true);
-
   // Live System Events Feed for Overview Tab
   const [systemEvents, setSystemEvents] = useState([
     { time: '22:01:05', type: 'git', text: 'Commit cbcf2ec pushed to master by Humesh' },
@@ -189,11 +196,11 @@ function App() {
   const logEndRef = useRef(null);
   const podLogEndRef = useRef(null);
   const eventsEndRef = useRef(null);
+  const jenkinsLogEndRef = useRef(null);
 
   // Simulate dynamic telemetry changes, adjusted by Canary Split
   useEffect(() => {
     const interval = setInterval(() => {
-      // CPU and memory base variations
       setCpuLoad(prev => {
         const base = 40 + (canarySplit * 0.25);
         return Math.min(Math.max(Number((base + (Math.random() * 6 - 3)).toFixed(1)), 15), 95);
@@ -203,13 +210,11 @@ function App() {
         return Math.min(Math.max(Number((base + (Math.random() * 4 - 2)).toFixed(1)), 30), 90);
       });
       
-      // Request rate scales with user slider split
       setReqRate(prev => {
         const baseRate = 12.4 + (canarySplit * 0.15);
         return Math.min(Math.max(Number((baseRate + (Math.random() * 2 - 1)).toFixed(1)), 2), 45);
       });
 
-      // Error rate spikes if canary split is in critical unstable zone (> 80%)
       setErrorRate(prev => {
         if (canarySplit > 80) {
           return Number((0.08 + Math.random() * 0.07).toFixed(3));
@@ -228,7 +233,6 @@ function App() {
         return next;
       });
 
-      // Randomly change pod CPU/RAM metrics slightly
       setPodsList(prev => prev.map(pod => {
         let cpuVal = 5 + Math.floor(Math.random() * 15);
         let memVal = '32Mi';
@@ -331,6 +335,10 @@ function App() {
     if (eventsEndRef.current) eventsEndRef.current.scrollIntoView({ behavior: 'smooth' });
   }, [systemEvents]);
 
+  useEffect(() => {
+    if (jenkinsLogEndRef.current) jenkinsLogEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [activeJenkinsLog]);
+
   // Stream typing response for AI Diagnostics
   useEffect(() => {
     if (!aiResponse) {
@@ -379,7 +387,6 @@ function App() {
       });
       if (!res.ok) throw new Error('Failed to add item');
       
-      // Add event to summary feed
       setSystemEvents(prev => [...prev, {
         time: new Date().toLocaleTimeString(),
         type: 'db',
@@ -450,6 +457,7 @@ function App() {
   function handleStageClick(stage) {
     setSelectedStage(stage);
     setPipelineLog(stage.log);
+    setCicdLogTab('stage');
   }
 
   // Trigger simulated Jenkins Build
@@ -469,6 +477,12 @@ function App() {
     };
     
     setJenkinsBuilds(prev => [newBuild, ...prev]);
+    setSelectedJenkinsBuild(newBuildId);
+    setCicdLogTab('jenkins');
+    
+    const startLog = `[INFO] Jenkins Pipeline Build ${newBuildId} STARTED\n[INFO] Triggered by: manual operator dashboard click\n[INFO] Checking out branch master...\n[INFO] Compiling production web assets...\n[INFO] Running test runner suit...`;
+    setActiveJenkinsLog(startLog);
+
     setSystemEvents(prev => [...prev, {
       time: new Date().toLocaleTimeString(),
       type: 'jenkins',
@@ -478,7 +492,20 @@ function App() {
     setStagesList(prev => prev.map(s => s.id === 'build' ? { ...s, status: 'active', log: '[INFO] Jenkins Build triggered...\n[INFO] Compiling files...' } : s));
 
     setTimeout(() => {
+      const midLog = `${startLog}\n[INFO] Unit tests running...\n- testBackendCRUD: PASSED\n- testAIOpsModel: PASSED\n- testTelemetryPulse: PASSED\n[INFO] Testing completed successfully.\n[INFO] Running static analysis scanning...\n[INFO] Compilation success. Packaging Docker Container layers...`;
+      setActiveJenkinsLog(midLog);
+      
+      setStagesList(prev => prev.map(s => s.id === 'build' ? { ...s, log: '[INFO] Unit tests: PASSED. Compiling Docker image layer...' } : s));
+    }, 2000);
+
+    setTimeout(() => {
       setJenkinsBuilds(prev => prev.map(b => b.id === newBuildId ? { ...b, status: 'SUCCESS', duration: '2m 04s' } : b));
+      
+      const completeLog = `[INFO] Jenkins Pipeline Build ${newBuildId} SUCCESS\n- Unit tests: 142 passed\n- Security scan: Trivy CVE compliance passed\n- Docker image tag: omega-backend:1.2-rc2 built successfully (224MB)\n- Docker image tag: omega-frontend:1.2-rc2 built successfully (114MB)\n[INFO] Uploading artifacts to Nexus server...\n[INFO] Artifact tag published: HTTP 201 Created\n[INFO] Triggering GitOps reconciliation sync...\n[INFO] Pipeline execution FINISHED successfully.`;
+      
+      setActiveJenkinsLog(completeLog);
+      setJenkinsLogsMap(prev => ({ ...prev, [newBuildId]: completeLog }));
+
       setStagesList(prev => prev.map(s => s.id === 'build' ? { 
         ...s, 
         status: 'completed', 
@@ -490,7 +517,14 @@ function App() {
         text: `Jenkins Pipeline: Build ${newBuildId} finished SUCCESS in 2m 04s`
       }]);
       setIsJenkinsBuilding(false);
-    }, 4000);
+    }, 4500);
+  }
+
+  // Handle selecting a Jenkins build in history
+  function handleSelectJenkinsBuild(build) {
+    setSelectedJenkinsBuild(build.id);
+    setActiveJenkinsLog(jenkinsLogsMap[build.id] || `[INFO] Logs for build ${build.id} not loaded.`);
+    setCicdLogTab('jenkins');
   }
 
   // Trigger ArgoCD GitOps Re-Sync
@@ -551,6 +585,7 @@ function App() {
   function handleTriggerPipelineRun() {
     if (isSimulatingPipeline) return;
     setIsSimulatingPipeline(true);
+    setCicdLogTab('stage');
     setSystemEvents(prev => [...prev, {
       time: new Date().toLocaleTimeString(),
       type: 'jenkins',
@@ -704,11 +739,6 @@ function App() {
   const renderOverviewTab = () => {
     return (
       <div className="tab-pane-grid overview-grid-layout">
-        {/* Full-width Flow graph */}
-        <div className="span-all-columns">
-          {renderPipelineGraph()}
-        </div>
-
         {/* Column Left: Live metrics & Summary */}
         <div className="grid-column">
           {/* Card: Metric Health Summary */}
@@ -806,94 +836,124 @@ function App() {
     );
   };
 
-  // Tab 2: CI/CD Pipeline Renderer
-  const renderCicdTab = () => {
+  // Tab 2: Integrated CI/CD Pipeline Renderer
+  const renderPipelineTab = () => {
     return (
-      <div className="tab-pane-grid cicd-grid-layout">
-        {/* SVG stage graph */}
-        <div className="span-all-columns">
+      <div className="cicd-tab-container">
+        {/* Top Section: DevOps Lifecycle Pipeline Graph */}
+        <div className="pipeline-graph-section">
           {renderPipelineGraph()}
         </div>
 
-        {/* Column Left: Pipeline logs inspector */}
-        <div className="grid-column flex-2-ratio">
-          <div className="dashboard-card logs-card">
-            <div className="card-header">
-              <svg className="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="4" y1="9" x2="20" y2="9"></line>
-                <line x1="4" y1="15" x2="20" y2="15"></line>
-                <line x1="10" y1="3" x2="8" y2="21"></line>
-                <line x1="16" y1="3" x2="14" y2="21"></line>
-              </svg>
-              <h2>Pipeline Console Logs - {selectedStage.label}</h2>
-            </div>
-            
-            <div className="log-viewer-pane">
-              <div className="log-header">
-                <span className="log-title">Standard Output Stdout</span>
-                <span className="status-badge status-pill" style={{ backgroundColor: selectedStage.color }}>
-                  {selectedStage.status.toUpperCase()}
-                </span>
+        {/* Bottom Section: Split Columns */}
+        <div className="pipeline-bottom-grid">
+          {/* Column Left: Jenkins CI Log History */}
+          <div className="pipeline-bottom-col">
+            <div className="dashboard-card jenkins-card">
+              <div className="card-header">
+                <svg className="card-icon color-jenkins" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <circle cx="9" cy="9" r="2"></circle>
+                  <circle cx="15" cy="9" r="2"></circle>
+                  <path d="M9 15c1.5 1 4.5 1 6 0"></path>
+                </svg>
+                <h2>Jenkins CI Build Run Log History</h2>
               </div>
-              <pre className="log-output-pre">
-                <code>{pipelineLog}</code>
-                <div ref={logEndRef} />
-              </pre>
+              <div className="jenkins-dashboard-content scrollable-panel-content">
+                <div className="jenkins-actions-header">
+                  <span className="builds-count">{jenkinsBuilds.length} builds recorded</span>
+                  <button 
+                    className={`btn-tab btn-build-jenkins ${isJenkinsBuilding ? 'building' : ''}`}
+                    onClick={handleTriggerJenkinsBuild}
+                    disabled={isJenkinsBuilding}
+                  >
+                    {isJenkinsBuilding ? 'Building...' : '⚒ Trigger Jenkins Build'}
+                  </button>
+                </div>
+
+                <div className="jenkins-table-wrapper">
+                  <table className="jenkins-table">
+                    <thead>
+                      <tr>
+                        <th>Build</th>
+                        <th>Branch</th>
+                        <th>Commit</th>
+                        <th>Duration</th>
+                        <th>Trigger Time</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {jenkinsBuilds.map((build, idx) => (
+                        <tr 
+                          key={idx} 
+                          onClick={() => handleSelectJenkinsBuild(build)}
+                          className={`pod-row-interactive ${selectedJenkinsBuild === build.id ? 'active-pod-row' : ''} ${build.status === 'SUCCESS' ? 'row-success' : build.status === 'FAILURE' ? 'row-fail' : 'row-running'}`}
+                        >
+                          <td className="build-id-td">{build.id}</td>
+                          <td>{build.branch}</td>
+                          <td className="font-mono-tag">{build.commit}</td>
+                          <td>{build.duration}</td>
+                          <td className="build-date-td">{build.date}</td>
+                          <td>
+                            <span className={`status-pill ${build.status.toLowerCase()}`}>{build.status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Column Right: Jenkins History Table */}
-        <div className="grid-column flex-1-ratio">
-          <div className="dashboard-card jenkins-card">
-            <div className="card-header">
-              <svg className="card-icon color-jenkins" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="9" cy="9" r="2"></circle>
-                <circle cx="15" cy="9" r="2"></circle>
-                <path d="M9 15c1.5 1 4.5 1 6 0"></path>
-              </svg>
-              <h2>Jenkins CI Build Run Log History</h2>
-            </div>
-            <div className="jenkins-dashboard-content scrollable-panel-content">
-              <div className="jenkins-actions-header">
-                <span className="builds-count">{jenkinsBuilds.length} builds recorded</span>
-                <button 
-                  className={`btn-tab btn-build-jenkins ${isJenkinsBuilding ? 'building' : ''}`}
-                  onClick={handleTriggerJenkinsBuild}
-                  disabled={isJenkinsBuilding}
-                >
-                  {isJenkinsBuilding ? 'Building #25...' : '⚒ Trigger Jenkins Build'}
-                </button>
+          {/* Column Right: Consolidated Log Viewer */}
+          <div className="pipeline-bottom-col">
+            <div className="dashboard-card logs-card">
+              <div className="card-header" style={{ justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <svg className="card-icon color-jenkins" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="4" y1="9" x2="20" y2="9"></line>
+                    <line x1="16" y1="3" x2="14" y2="21"></line>
+                  </svg>
+                  <h2>CI/CD Console Logs Drawer</h2>
+                </div>
+                {/* Embedded Sub-tab selection */}
+                <div className="logs-tab-menu" style={{ display: 'flex', gap: '8px' }}>
+                  <button 
+                    type="button"
+                    className={`btn-tab ${cicdLogTab === 'jenkins' ? 'active' : ''}`}
+                    onClick={() => setCicdLogTab('jenkins')}
+                    style={{ fontSize: '11px', padding: '2px 8px', background: cicdLogTab === 'jenkins' ? 'rgba(56, 189, 248, 0.15)' : '', borderColor: cicdLogTab === 'jenkins' ? 'var(--accent-blue)' : '' }}
+                  >
+                    ⚒ Jenkins {selectedJenkinsBuild}
+                  </button>
+                  <button 
+                    type="button"
+                    className={`btn-tab ${cicdLogTab === 'stage' ? 'active' : ''}`}
+                    onClick={() => setCicdLogTab('stage')}
+                    style={{ fontSize: '11px', padding: '2px 8px', background: cicdLogTab === 'stage' ? 'rgba(192, 132, 252, 0.15)' : '', borderColor: cicdLogTab === 'stage' ? 'var(--accent-purple)' : '' }}
+                  >
+                    🔍 Stage: {selectedStage.label}
+                  </button>
+                </div>
               </div>
 
-              <div className="jenkins-table-wrapper">
-                <table className="jenkins-table">
-                  <thead>
-                    <tr>
-                      <th>Build</th>
-                      <th>Branch</th>
-                      <th>Commit</th>
-                      <th>Duration</th>
-                      <th>Trigger Time</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {jenkinsBuilds.map((build, idx) => (
-                      <tr key={idx} className={build.status === 'SUCCESS' ? 'row-success' : build.status === 'FAILURE' ? 'row-fail' : 'row-running'}>
-                        <td className="build-id-td">{build.id}</td>
-                        <td>{build.branch}</td>
-                        <td className="font-mono-tag">{build.commit}</td>
-                        <td>{build.duration}</td>
-                        <td className="build-date-td">{build.date}</td>
-                        <td>
-                          <span className={`status-pill ${build.status.toLowerCase()}`}>{build.status}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="log-viewer-pane">
+                <div className="log-header">
+                  <span className="log-title">
+                    {cicdLogTab === 'jenkins' ? `Jenkins Console Output for ${selectedJenkinsBuild}` : `Stage Inspector: ${selectedStage.label}`}
+                  </span>
+                  <span className={`status-badge status-pill ${cicdLogTab === 'jenkins' ? 'synced' : 'synced'}`} style={{ backgroundColor: cicdLogTab === 'stage' ? selectedStage.color : '' }}>
+                    {cicdLogTab === 'jenkins' ? 'SUCCESS' : selectedStage.status.toUpperCase()}
+                  </span>
+                </div>
+                <pre className="log-output-pre">
+                  <code>
+                    {cicdLogTab === 'jenkins' ? activeJenkinsLog : pipelineLog}
+                  </code>
+                  <div ref={cicdLogTab === 'jenkins' ? jenkinsLogEndRef : logEndRef} />
+                </pre>
               </div>
             </div>
           </div>
@@ -902,7 +962,7 @@ function App() {
     );
   };
 
-  // Tab 3: Cluster & Mesh Renderer
+  // Tab 4: Cluster & Mesh Renderer
   const renderMeshTab = () => {
     return (
       <div className="tab-pane-grid mesh-grid-layout">
@@ -1063,7 +1123,7 @@ function App() {
     );
   };
 
-  // Tab 4: AIOps & Tasks Renderer
+  // Tab 5: AIOps & Tasks Renderer
   const renderAiopsTab = () => {
     return (
       <div className="tab-pane-grid aiops-grid-layout">
@@ -1088,7 +1148,7 @@ function App() {
               </div>
             </div>
 
-            <div className="ai-control-group scrollable-panel-content">
+            <div className="ai-control-group">
               <div className="input-row-flex">
                 <div className="input-group inline-group select-compact">
                   <label>Context Parameter</label>
@@ -1268,6 +1328,29 @@ function App() {
                   <div className="sec-progress-fill" style={{ width: '92.4%' }}></div>
                 </div>
               </div>
+
+              <div className="security-warnings-list" style={{ marginTop: '24px' }}>
+                <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: '#8b949e', margin: '0 0 10px 0', textAlign: 'left' }}>
+                  Critical & High Severity CVE Details
+                </h4>
+                <div className="cve-warnings-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div className="cve-warning-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(244, 63, 94, 0.05)', border: '1px solid rgba(244, 63, 94, 0.15)', borderRadius: '4px', fontSize: '12px' }}>
+                    <span style={{ fontWeight: 'bold', color: '#f43f5e' }}>CVE-2026-0182</span>
+                    <span style={{ color: '#8b949e' }}>glibc buffer overflow (patched)</span>
+                    <span className="status-badge status-pill synced" style={{ fontSize: '9px', padding: '2px 4px' }}>FIXED</span>
+                  </div>
+                  <div className="cve-warning-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(251, 146, 60, 0.05)', border: '1px solid rgba(251, 146, 60, 0.15)', borderRadius: '4px', fontSize: '12px' }}>
+                    <span style={{ fontWeight: 'bold', color: 'var(--accent-orange)' }}>CVE-2026-3849</span>
+                    <span style={{ color: '#8b949e' }}>python-pillow vulnerability</span>
+                    <span className="status-badge status-pill error" style={{ fontSize: '9px', padding: '2px 4px' }}>OPEN</span>
+                  </div>
+                  <div className="cve-warning-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(251, 146, 60, 0.05)', border: '1px solid rgba(251, 146, 60, 0.15)', borderRadius: '4px', fontSize: '12px' }}>
+                    <span style={{ fontWeight: 'bold', color: 'var(--accent-orange)' }}>CVE-2026-1192</span>
+                    <span style={{ color: '#8b949e' }}>npm json-schema vuln</span>
+                    <span className="status-badge status-pill error" style={{ fontSize: '9px', padding: '2px 4px' }}>OPEN</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1363,8 +1446,8 @@ function App() {
             <span className="nav-text">Dashboard Overview</span>
           </button>
           <button 
-            className={`nav-item ${activeTab === 'cicd' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('cicd')}
+            className={`nav-item ${activeTab === 'pipeline' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('pipeline')}
           >
             <span className="nav-icon">🔄</span>
             <span className="nav-text">CI/CD Pipeline</span>
@@ -1439,7 +1522,7 @@ function App() {
         {/* Dynamic Tab Contents */}
         <div className="tab-content-container">
           {activeTab === 'overview' && renderOverviewTab()}
-          {activeTab === 'cicd' && renderCicdTab()}
+          {activeTab === 'pipeline' && renderPipelineTab()}
           {activeTab === 'mesh' && renderMeshTab()}
           {activeTab === 'aiops' && renderAiopsTab()}
         </div>
