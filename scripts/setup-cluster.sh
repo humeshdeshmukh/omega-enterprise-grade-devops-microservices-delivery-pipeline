@@ -7,7 +7,7 @@ echo "🚀 Starting Omega Local Cluster Setup..."
 
 # 1. Start Minikube
 echo "📦 Starting Minikube cluster..."
-minikube start --cpus=4 --memory=8192
+minikube start --cpus=4 --memory=8192 --kubernetes-version=v1.30.0
 
 # Load .env variables to create K8s Secret for Gemini AIOps
 if [ -f "$SCRIPT_DIR/../.env" ]; then

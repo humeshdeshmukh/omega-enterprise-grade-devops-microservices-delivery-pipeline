@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
 const API_BASE = window.location.hostname === 'localhost' && window.location.port === '5173'
@@ -58,13 +58,62 @@ resource "aws_s3_bucket_public_access_block" "block" {
   }
 };
 
+const INITIAL_FLOW_STAGES = [
+  { id: 'code', label: '1. CODE', desc: 'Git Commit', status: 'completed', color: '#58a6ff', log: 'commit cbcf2ec HEAD -> master\nAuthor: Humesh Deshmukh <humesh@omega.enterprise>\nDate: 2026-06-10\n- updated frontend layout to full-screen cockpit dashboard\n- integrated live telemetry simulator\n- optimized Helm timeout values' },
+  { id: 'build', label: '2. BUILD', desc: 'Jenkins CI', status: 'completed', color: '#58a6ff', log: '[INFO] Starting Jenkins Pipeline Build #24...\n[INFO] Checking out branch master...\n[INFO] Running unit tests...\n[INFO] Test execution passed! (142 tests completed)\n[INFO] Docker image compilation success: omega-backend:1.2-rc1\n[INFO] Docker image compilation success: omega-frontend:1.2-rc1' },
+  { id: 'test', label: '3. TEST', desc: 'SonarQube Quality', status: 'completed', color: '#3fb950', log: 'SonarQube scanner running...\n- Quality Gate: PASSED\n- Vulnerabilities: 0 Critical, 2 High\n- Code Smells: 4\n- Coverage: 92.4%\n- Security Hotspots: 1 reviewed' },
+  { id: 'artifact', label: '4. ARTIFACT', desc: 'Nexus Upload', status: 'completed', color: '#58a6ff', log: 'Nexus Repository Manager API Connection...\nUploading docker image tag: omega-backend:1.2-rc1...\nUploading docker image tag: omega-frontend:1.2-rc1...\nUpload successful! HTTP 201 Created (224MB, 114MB)' },
+  { id: 'iac', label: '5. IAC', desc: 'Terraform Plan', status: 'completed', color: '#bc8cff', log: 'Terraform v1.8.0 plan success.\nInfracost Cost Estimate:\nBaseline Monthly Cost: $142.50\nProposed Monthly Cost: $204.10\nCost Delta: +$61.60\nSecurity Policy Checked: 2 compliant, 1 non-compliant (S3 Public access block warning)' },
+  { id: 'sync', label: '6. GITOPS', desc: 'ArgoCD Sync', status: 'completed', color: '#3fb950', log: 'ArgoCD application sync triggered...\n- Replicas: 4/4 synchronized\n- Ingress routes verified\n- ConfigMaps & Secrets matched\n- Status: Synced & Healthy' },
+  { id: 'mesh', label: '7. MESH', desc: 'Istio Service Split', status: 'active', color: '#bc8cff', log: 'Istio ingress gateway online.\nVirtualService traffic routing:\n- omega-frontend -> 100% (v1.1)\n- omega-backend -> 90% (v1.1), 10% (v1.2-canary)\nSidecar injection: enabled in default namespace' },
+  { id: 'telemetry', label: '8. TELEMETRY', desc: 'Prometheus Stack', status: 'active', color: '#58a6ff', log: 'Scraping metrics endpoint /metrics...\n- Latency Average: 42ms\n- Active connections: 85\n- Request rate: 12.4 req/sec\n- CPU metrics collected' },
+  { id: 'aiops', label: '9. AIOPS', desc: 'Gemini Analysis', status: 'idle', color: '#bc8cff', log: 'AIOps Engine initialized.\nWaiting for log or config upload in the diagnostics panel...' }
+];
+
+const MOCK_POD_LOGS = {
+  'omega-backend-7c98f-lmx': [
+    "[18:04:10] Starting backend service on port 8000...",
+    "[18:04:11] Connected to PostgreSQL Database at omega-postgres-db-0.db.svc",
+    "[18:04:12] Redis connection pool initialized.",
+    "[18:04:14] Istio sidecar proxy handshake completed (mTLS enabled).",
+    "[18:04:15] Health check /healthz returned HTTP 200 OK.",
+    "[18:04:20] GET /items/ - 200 OK (8.4ms)",
+    "[18:04:25] GET /api/ai/analyze - 200 OK (245ms)",
+  ],
+  'omega-frontend-5b4c9-qrs': [
+    "[18:04:08] Starting nginx web server...",
+    "[18:04:09] DNS lookup configuration loaded.",
+    "[18:04:11] Ingress rule matched / -> omega-frontend:80",
+    "[18:04:12] Istio sidecar proxy configured with Envoy v1.30.",
+    "[18:04:15] GET /index.html - 200 OK",
+    "[18:04:18] GET /assets/index.css - 200 OK",
+  ],
+  'omega-postgres-db-0': [
+    "[18:04:02] PostgreSQL Database cluster initialized.",
+    "[18:04:03] Listening on local socket and port 5432.",
+    "[18:04:05] Database 'omega_enterprise' ready for connections.",
+    "[18:04:11] Connection received from 10.244.1.42 (omega-backend).",
+    "[18:04:11] Authorized user 'humesh' (SSL enabled).",
+    "[18:04:20] SELECT * FROM items; - SUCCESS (1.2ms)",
+  ],
+  'istio-ingressgateway-7c8': [
+    "[18:03:59] Istio Ingress Gateway bootstrap completed.",
+    "[18:04:00] Listening on ports 80 and 443.",
+    "[18:04:11] Route rules matched host: omega.enterprise",
+    "[18:04:12] Forwarding request: GET / -> omega-frontend-5b4c9-qrs:80",
+    "[18:04:15] TLS handshake success with client: TLSv1.3 ECDHE-RSA-AES256-GCM-SHA384",
+  ]
+};
+
 function App() {
   // DB Items States
   const [dbItems, setDbItems] = useState([]);
   const [dbLoading, setDbLoading] = useState(false);
   const [dbError, setDbError] = useState('');
   const [newItemName, setNewItemName] = useState('');
-  const [newItemDesc, setNewItemDesc] = useState('');
+  const [newItemDesc, setNewItemDesc] = useState('Humesh | High'); // Format: Assignee | Priority
+  const [newItemPriority, setNewItemPriority] = useState('High');
+  const [newItemAssignee, setNewItemAssignee] = useState('Humesh');
 
   // AI Analyzer States
   const [logInput, setLogInput] = useState('');
@@ -73,11 +122,203 @@ function App() {
   const [aiModel, setAiModel] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [aiStreamingText, setAiStreamingText] = useState('');
+
+  // Interactive flow states
+  const [stagesList, setStagesList] = useState(INITIAL_FLOW_STAGES);
+  const [selectedStage, setSelectedStage] = useState(INITIAL_FLOW_STAGES[6]); // default to Istio Mesh stage
+  const [pipelineLog, setPipelineLog] = useState(INITIAL_FLOW_STAGES[6].log);
+  const [isSimulatingPipeline, setIsSimulatingPipeline] = useState(false);
+
+  // Istio Canary states
+  const [canarySplit, setCanarySplit] = useState(10); // 0 to 100
+
+  // GitOps ArgoCD states
+  const [argoSyncStatus, setArgoSyncStatus] = useState('Synced');
+  const [argoHealthStatus, setArgoHealthStatus] = useState('Healthy');
+  const [isArgoSyncing, setIsArgoSyncing] = useState(false);
+  const [selectedArgoResource, setSelectedArgoResource] = useState('Deployment');
+
+  // Security Audit & CVE states
+  const [cveCounts, setCveCounts] = useState({ critical: 0, high: 2, medium: 8, low: 15 });
+  const [isCveScanning, setIsCveScanning] = useState(false);
+  const [lastCveScanTime, setLastCveScanTime] = useState('1 hour ago');
+
+  // Jenkins Build History states
+  const [jenkinsBuilds, setJenkinsBuilds] = useState([
+    { id: '#24', status: 'SUCCESS', branch: 'master', commit: 'cbcf2ec', duration: '2m 14s', date: '10 mins ago', author: 'Humesh' },
+    { id: '#23', status: 'SUCCESS', branch: 'master', commit: 'e79b9a1', duration: '2m 08s', date: '1 hour ago', author: 'Humesh' },
+    { id: '#22', status: 'FAILURE', branch: 'feature-metrics', commit: 'a4b2c8e', duration: '1m 45s', date: '3 hours ago', author: 'Bob' },
+    { id: '#21', status: 'SUCCESS', branch: 'master', commit: '98d7f2a', duration: '2m 19s', date: '5 hours ago', author: 'Charlie' }
+  ]);
+  const [isJenkinsBuilding, setIsJenkinsBuilding] = useState(false);
+
+  // Live Telemetry states (Simulator)
+  const [cpuLoad, setCpuLoad] = useState(42.5);
+  const [memLoad, setMemLoad] = useState(68.2);
+  const [reqRate, setReqRate] = useState(12.4);
+  const [errorRate, setErrorRate] = useState(0.02);
+  const [latencyHistory, setLatencyHistory] = useState([41, 45, 38, 42, 49, 44, 42]);
+  const [podsList, setPodsList] = useState([
+    { name: 'omega-backend-7c98f-lmx', ready: '1/1', status: 'Running', restarts: 0, cpu: '48m', mem: '184Mi', statusClass: 'running' },
+    { name: 'omega-frontend-5b4c9-qrs', ready: '1/1', status: 'Running', restarts: 0, cpu: '12m', mem: '34Mi', statusClass: 'running' },
+    { name: 'omega-postgres-db-0', ready: '1/1', status: 'Running', restarts: 0, cpu: '8m', mem: '96Mi', statusClass: 'running' },
+    { name: 'istio-ingressgateway-7c8', ready: '1/1', status: 'Running', restarts: 0, cpu: '22m', mem: '112Mi', statusClass: 'running' }
+  ]);
+
+  // Selected pod log drawer
+  const [selectedPod, setSelectedPod] = useState(null);
+  const [podLogs, setPodLogs] = useState([]);
+  const [isPodDrawerOpen, setIsPodDrawerOpen] = useState(false);
+
+  // Terraform State approval
+  const [tfApproved, setTfApproved] = useState(false);
+  const [tfLock, setTfLock] = useState(true);
+
+  const logEndRef = useRef(null);
+  const podLogEndRef = useRef(null);
+
+  // Simulate dynamic telemetry changes, adjusted by Canary Split
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // CPU and memory base variations
+      setCpuLoad(prev => {
+        // More traffic split to canary -> slightly more CPU utilization
+        const base = 40 + (canarySplit * 0.25);
+        return Math.min(Math.max(Number((base + (Math.random() * 6 - 3)).toFixed(1)), 15), 95);
+      });
+      setMemLoad(prev => {
+        const base = 65 + (canarySplit * 0.1);
+        return Math.min(Math.max(Number((base + (Math.random() * 4 - 2)).toFixed(1)), 30), 90);
+      });
+      
+      // Request rate scales with user slider split
+      setReqRate(prev => {
+        const baseRate = 12.4 + (canarySplit * 0.15);
+        return Math.min(Math.max(Number((baseRate + (Math.random() * 2 - 1)).toFixed(1)), 2), 45);
+      });
+
+      // Error rate spikes if canary split is in critical unstable zone (> 80%)
+      setErrorRate(prev => {
+        if (canarySplit > 80) {
+          return Number((0.08 + Math.random() * 0.07).toFixed(3)); // Spikes up to 15% errors
+        } else if (canarySplit > 50) {
+          return Number((0.02 + Math.random() * 0.03).toFixed(3)); // Spikes up to 5% errors
+        } else {
+          return Number((0.002 + Math.random() * 0.01).toFixed(3)); // Healthy 0.2% - 1.2% errors
+        }
+      });
+      
+      setLatencyHistory(prev => {
+        const next = [...prev.slice(1)];
+        // Higher canary split adds networking overhead split latency
+        const baseLatency = 35 + Math.floor(canarySplit * 0.3);
+        const newVal = Math.floor(baseLatency + Math.random() * 15);
+        next.push(newVal);
+        return next;
+      });
+
+      // Randomly change pod CPU/RAM metrics slightly
+      setPodsList(prev => prev.map(pod => {
+        let cpuVal = 5 + Math.floor(Math.random() * 15);
+        let memVal = '32Mi';
+
+        if (pod.name.includes('backend')) {
+          cpuVal = 30 + Math.floor(canarySplit * 0.4) + Math.floor(Math.random() * 10);
+          memVal = `${160 + Math.floor(Math.random() * 20) + Math.floor(canarySplit * 0.5)}Mi`;
+        } else if (pod.name.includes('db')) {
+          cpuVal = 8 + Math.floor(Math.random() * 4);
+          memVal = `${92 + Math.floor(Math.random() * 8)}Mi`;
+        } else if (pod.name.includes('ingress')) {
+          cpuVal = 15 + Math.floor(canarySplit * 0.2) + Math.floor(Math.random() * 6);
+          memVal = `${105 + Math.floor(Math.random() * 10)}Mi`;
+        } else if (pod.name.includes('frontend')) {
+          cpuVal = 10 + Math.floor(Math.random() * 5);
+          memVal = `${30 + Math.floor(Math.random() * 5)}Mi`;
+        }
+
+        return {
+          ...pod,
+          cpu: `${cpuVal}m`,
+          mem: memVal
+        };
+      }));
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [canarySplit]);
+
+  // Pod Logs stream simulator
+  useEffect(() => {
+    if (!selectedPod || !isPodDrawerOpen) return;
+
+    const interval = setInterval(() => {
+      setPodLogs(prev => {
+        const next = [...prev];
+        if (next.length > 50) next.shift(); // keep it clean
+        
+        const timestamp = new Date().toLocaleTimeString();
+        const routes = ["/items/", "/api/ai/analyze", "/healthz", "/metrics"];
+        const selectedRoute = routes[Math.floor(Math.random() * routes.length)];
+        const latency = Math.floor(5 + Math.random() * 120);
+        
+        let newLog = `[${timestamp}] INFO: client connected, process ID: ${Math.floor(100 + Math.random() * 900)}`;
+        if (selectedPod.includes('backend')) {
+          newLog = `[${timestamp}] GET ${selectedRoute} - 200 OK (${latency}ms) - thread_pool_active: ${Math.floor(Math.random() * 5)}`;
+        } else if (selectedPod.includes('frontend')) {
+          newLog = `[${timestamp}] NGINX Access: client-ip 10.244.0.1 - GET /static/index.js HTTP/1.1 200 (size: ${Math.floor(12 + Math.random()*20)}KB)`;
+        } else if (selectedPod.includes('db')) {
+          newLog = `[${timestamp}] DB Engine: Connection pool state - active_conns: ${Math.floor(2 + Math.random()*5)}, idle_conns: 12`;
+        } else if (selectedPod.includes('ingress')) {
+          newLog = `[${timestamp}] Proxy: Route matched cluster: ${selectedRoute.includes('items') ? 'omega-backend' : 'omega-frontend'} - weighting: v1=${100-canarySplit}%, v2=${canarySplit}%`;
+        }
+        
+        next.push(newLog);
+        return next;
+      });
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [selectedPod, isPodDrawerOpen, canarySplit]);
 
   // Fetch DB Items on mount
   useEffect(() => {
     fetchDbItems();
   }, []);
+
+  // Scroll details pane to bottom on change
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [pipelineLog]);
+
+  // Scroll pod drawer logs to bottom
+  useEffect(() => {
+    if (podLogEndRef.current) {
+      podLogEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [podLogs]);
+
+  // Stream typing response for AI Diagnostics
+  useEffect(() => {
+    if (!aiResponse) {
+      setAiStreamingText('');
+      return;
+    }
+    
+    let index = 0;
+    setAiStreamingText('');
+    const typingTimer = setInterval(() => {
+      setAiStreamingText(prev => prev + aiResponse.charAt(index));
+      index++;
+      if (index >= aiResponse.length) {
+        clearInterval(typingTimer);
+      }
+    }, 12); // fast streaming speed
+
+    return () => clearInterval(typingTimer);
+  }, [aiResponse]);
 
   async function fetchDbItems() {
     setDbLoading(true);
@@ -98,16 +339,33 @@ function App() {
     e.preventDefault();
     if (!newItemName.trim()) return;
     setDbLoading(true);
+    
+    // Store Assignee and Priority in Description field to support rich items UI on top of original DB schema
+    const formattedDesc = `${newItemAssignee} | ${newItemPriority}`;
+    
     try {
-      const res = await fetch(`${API_BASE}/items/?name=${encodeURIComponent(newItemName)}&description=${encodeURIComponent(newItemDesc)}`, {
+      const res = await fetch(`${API_BASE}/items/?name=${encodeURIComponent(newItemName)}&description=${encodeURIComponent(formattedDesc)}`, {
         method: 'POST',
       });
       if (!res.ok) throw new Error('Failed to add item');
       setNewItemName('');
-      setNewItemDesc('');
       fetchDbItems();
     } catch (err) {
       setDbError(err.message || 'Failed to save item');
+      setDbLoading(false);
+    }
+  }
+
+  async function handleDeleteItem(itemId) {
+    setDbLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/items/${itemId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Failed to delete item');
+      fetchDbItems();
+    } catch (err) {
+      setDbError(err.message || 'Failed to delete item');
       setDbLoading(false);
     }
   }
@@ -149,6 +407,138 @@ function App() {
       setLogInput(tmpl.data);
       setContextType(tmpl.context);
     }
+  }
+
+  function handleStageClick(stage) {
+    setSelectedStage(stage);
+    setPipelineLog(stage.log);
+  }
+
+  // Trigger simulated Jenkins Build
+  function handleTriggerJenkinsBuild() {
+    if (isJenkinsBuilding) return;
+    setIsJenkinsBuilding(true);
+    
+    // Add pending build
+    const newBuildId = `#${parseInt(jenkinsBuilds[0].id.replace('#', '')) + 1}`;
+    const newBuild = {
+      id: newBuildId,
+      status: 'BUILDING',
+      branch: 'master',
+      commit: Math.random().toString(16).substring(2, 9),
+      duration: '--',
+      date: 'Just now',
+      author: 'Humesh'
+    };
+    
+    setJenkinsBuilds(prev => [newBuild, ...prev]);
+
+    // Update stages
+    setStagesList(prev => prev.map(s => s.id === 'build' ? { ...s, status: 'active', log: '[INFO] Jenkins Build triggered...\n[INFO] Compiling files...' } : s));
+
+    setTimeout(() => {
+      setJenkinsBuilds(prev => prev.map(b => b.id === newBuildId ? { ...b, status: 'SUCCESS', duration: '2m 04s' } : b));
+      setStagesList(prev => prev.map(s => s.id === 'build' ? { 
+        ...s, 
+        status: 'completed', 
+        log: `[INFO] Jenkins Pipeline Build ${newBuildId} SUCCESS\n- Unit tests: 142 passed\n- Security scan: Trivy compliance passed\n- Built image successfully` 
+      } : s));
+      setIsJenkinsBuilding(false);
+    }, 4000);
+  }
+
+  // Trigger ArgoCD GitOps Re-Sync
+  function handleTriggerArgoSync() {
+    if (isArgoSyncing) return;
+    setIsArgoSyncing(true);
+    setArgoSyncStatus('Syncing');
+    setArgoHealthStatus('Progressing');
+
+    // Update stages
+    setStagesList(prev => prev.map(s => s.id === 'sync' ? { ...s, status: 'active', log: 'ArgoCD synchronizing manifests...' } : s));
+
+    setTimeout(() => {
+      setArgoSyncStatus('Synced');
+      setArgoHealthStatus('Healthy');
+      setIsArgoSyncing(false);
+      setStagesList(prev => prev.map(s => s.id === 'sync' ? { 
+        ...s, 
+        status: 'completed', 
+        log: 'ArgoCD Synchronized.\nTarget Version: 1.2-rc1\nHealth: Healthy\nReplicaSets updated successfully' 
+      } : s));
+    }, 3500);
+  }
+
+  // Trigger CVE Security scan
+  function handleTriggerCveScan() {
+    if (isCveScanning) return;
+    setIsCveScanning(true);
+    setCveCounts({ critical: 0, high: 0, medium: 0, low: 0 });
+
+    setTimeout(() => {
+      setCveCounts({ critical: 0, high: 1, medium: 4, low: 9 }); // resolved some CVEs!
+      setLastCveScanTime('Just now');
+      setIsCveScanning(false);
+    }, 3000);
+  }
+
+  // Trigger Full Pipeline Run Animation
+  function handleTriggerPipelineRun() {
+    if (isSimulatingPipeline) return;
+    setIsSimulatingPipeline(true);
+    
+    // Clear stages status to idle (except code)
+    setStagesList(prev => prev.map((s, idx) => ({
+      ...s,
+      status: idx === 0 ? 'active' : 'idle'
+    })));
+    setSelectedStage(stagesList[0]);
+    setPipelineLog("Initializing pipeline run...\n");
+
+    let currentStageIndex = 0;
+    
+    const interval = setInterval(() => {
+      if (currentStageIndex >= stagesList.length) {
+        clearInterval(interval);
+        setIsSimulatingPipeline(false);
+        // Set all to active/completed states back to default
+        setStagesList(INITIAL_FLOW_STAGES);
+        setSelectedStage(INITIAL_FLOW_STAGES[6]);
+        setPipelineLog(INITIAL_FLOW_STAGES[6].log);
+        return;
+      }
+
+      const stage = stagesList[currentStageIndex];
+      setSelectedStage(stage);
+      setPipelineLog(stage.log);
+
+      setStagesList(prev => prev.map((s, idx) => {
+        if (idx === currentStageIndex) return { ...s, status: 'active' };
+        if (idx < currentStageIndex) return { ...s, status: 'completed' };
+        return { ...s, status: 'idle' };
+      }));
+
+      currentStageIndex++;
+    }, 2000);
+  }
+
+  // Handle Pod click to show Drawer
+  function handlePodClick(pod) {
+    setSelectedPod(pod.name);
+    setPodLogs(MOCK_POD_LOGS[pod.name] || [
+      `[18:04:12] Initializing pod ${pod.name}...`,
+      `[18:04:13] Sidecar configuration loaded successfully.`,
+      `[18:04:14] Streaming container metrics (Ready ${pod.ready})...`
+    ]);
+    setIsPodDrawerOpen(true);
+  }
+
+  // Parse description into Assignee and Priority
+  function parseDescription(desc) {
+    if (!desc) return { assignee: 'N/A', priority: 'Medium' };
+    const parts = desc.split('|');
+    if (parts.length < 2) return { assignee: desc, priority: 'Medium' };
+    return { assignee: parts[0].trim(), priority: parts[1].trim() };
   }
 
   // Custom high-fidelity Markdown parser/renderer
@@ -221,169 +611,666 @@ function App() {
     return elements;
   };
 
+  // ArgoCD dynamic tree rendering helper
+  const renderArgoNode = (type, name, status) => {
+    const isSelected = selectedArgoResource === type;
+    return (
+      <div 
+        className={`argo-tree-node ${isSelected ? 'selected' : ''} ${status}`}
+        onClick={() => setSelectedArgoResource(type)}
+      >
+        <span className="argo-node-dot"></span>
+        <div className="argo-node-text">
+          <span className="argo-node-type">{type}</span>
+          <span className="argo-node-name">{name}</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="app-container">
+    <div className="app-container cockpit-view">
       {/* Top Header */}
       <header className="app-header">
         <div className="header-brand">
           <div className="pulse-indicator"></div>
-          <h1>OMEGA AIOps Dashboard</h1>
-          <span className="badge">v1.1 Enterprise</span>
+          <div className="header-title-group">
+            <h1>OMEGA DevOps Cockpit</h1>
+            <span className="badge">v1.3 Enterprise View</span>
+          </div>
         </div>
+        
+        {/* Global Live Dashboard Metrics */}
+        <div className="global-metrics-strip">
+          <div className="metric-box">
+            <span className="m-label">Cluster CPU</span>
+            <span className="m-val">{cpuLoad}%</span>
+            <div className="mini-progress"><div className="mini-bar purple-bar" style={{ width: `${cpuLoad}%` }}></div></div>
+          </div>
+          <div className="metric-box">
+            <span className="m-label">Cluster RAM</span>
+            <span className="m-val">{memLoad}%</span>
+            <div className="mini-progress"><div className="mini-bar blue-bar" style={{ width: `${memLoad}%` }}></div></div>
+          </div>
+          <div className="metric-box font-mono-box">
+            <span className="m-label">Throughput</span>
+            <span className="m-val green-text">{reqRate}/s</span>
+          </div>
+          <div className="metric-box font-mono-box">
+            <span className="m-label">Failure Rate</span>
+            <span className={`m-val ${(errorRate * 100) > 4 ? 'red-text' : (errorRate * 100) > 1.5 ? 'orange-text' : 'green-text'}`}>
+              {(errorRate * 100).toFixed(2)}%
+            </span>
+          </div>
+          <div className="metric-box font-mono-box hidden-mobile">
+            <span className="m-label">Health Score</span>
+            <span className="m-val green-text">
+              {(100 - (errorRate * 100) - (cpuLoad > 85 ? 5 : 0)).toFixed(1)}%
+            </span>
+          </div>
+        </div>
+
         <div className="system-status">
           <span className="status-label">Environment:</span>
-          <span className="status-val k8s-text">Minikube / Istio Mesh</span>
+          <span className="status-val k8s-text">Docker Multi-Mesh Compose</span>
         </div>
       </header>
 
-      {/* Main Layout Grid */}
-      <main className="dashboard-grid">
-        
-        {/* Left Column: DB CRUD Test & Configuration */}
-        <section className="dashboard-card db-card">
-          <div className="card-header">
-            <svg className="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
-              <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path>
-            </svg>
-            <h2>Database Sync & CRUD Check</h2>
+      {/* Full-width Flow Visualizer Pipeline */}
+      <div className="flow-visualizer-card">
+        <div className="flow-titlebar">
+          <div className="flow-titlebar-left">
+            <div className="pulse-indicator pulse-purple"></div>
+            <h3>DevOps Lifecycle Pipeline Graph</h3>
           </div>
-          
-          {dbError && (
-            <div className="alert alert-error">
-              <strong>Database Error:</strong> {dbError}
-              <button className="btn-retry" onClick={fetchDbItems}>Retry</button>
-            </div>
-          )}
-
-          <form onSubmit={handleAddItem} className="db-form">
-            <div className="input-group">
-              <label>DevOps Action Item</label>
-              <input 
-                type="text" 
-                placeholder="e.g. Upgrade Jenkins Helm chart" 
-                value={newItemName}
-                onChange={(e) => setNewItemName(e.target.value)}
-                required
-              />
-            </div>
-            <div className="input-group">
-              <label>Assignee / Details</label>
-              <input 
-                type="text" 
-                placeholder="e.g. DevOps Platform Team" 
-                value={newItemDesc}
-                onChange={(e) => setNewItemDesc(e.target.value)}
-              />
-            </div>
-            <button type="submit" className="btn-primary" disabled={dbLoading}>
-              {dbLoading ? 'Saving...' : 'Add Action Item'}
+          <div className="flow-titlebar-right">
+            <button 
+              className={`btn-primary btn-run-pipeline ${isSimulatingPipeline ? 'running' : ''}`}
+              onClick={handleTriggerPipelineRun}
+              disabled={isSimulatingPipeline}
+            >
+              {isSimulatingPipeline ? 'Pipeline Running...' : '⚡ Simulate Full Pipeline Run'}
             </button>
-          </form>
-
-          <div className="items-list-container">
-            <h3>Registered Action Items ({dbItems.length})</h3>
-            {dbLoading && <div className="spinner-small"></div>}
-            {!dbLoading && dbItems.length === 0 && (
-              <p className="no-items-text">No action items found in PostgreSQL. Add one above!</p>
-            )}
-            <ul className="items-list">
-              {dbItems.map((item) => (
-                <li key={item.id} className="item-row">
-                  <div className="item-main">
-                    <span className="item-name">{item.name}</span>
-                    {item.description && <span className="item-desc">{item.description}</span>}
+            <span className="flow-hint">Current Inspector Node: <strong>{selectedStage.label}</strong></span>
+          </div>
+        </div>
+        
+        <div className="flow-nodes-wrapper">
+          <div className="flow-nodes-container">
+            {stagesList.map((stage, index) => {
+              const isSelected = selectedStage.id === stage.id;
+              const isLast = index === stagesList.length - 1;
+              return (
+                <div key={stage.id} className="flow-node-pair">
+                  <div 
+                    className={`flow-node ${isSelected ? 'selected' : ''} ${stage.status}`}
+                    style={{ '--node-color': stage.color }}
+                    onClick={() => handleStageClick(stage)}
+                  >
+                    <div className="node-icon-placeholder">
+                      {stage.status === 'completed' && <span className="icon-check">✓</span>}
+                      {stage.status === 'active' && <span className="icon-pulse"></span>}
+                      {stage.status === 'idle' && <span className="icon-dots">⋯</span>}
+                    </div>
+                    <div className="node-info">
+                      <span className="node-label">{stage.label}</span>
+                      <span className="node-desc">{stage.desc}</span>
+                    </div>
                   </div>
-                  <span className="item-id">ID: {item.id}</span>
-                </li>
-              ))}
-            </ul>
+                  {!isLast && (
+                    <svg className="flow-connector" width="40" height="24">
+                      <line 
+                        x1="0" 
+                        y1="12" 
+                        x2="40" 
+                        y2="12" 
+                        stroke={stage.status === 'completed' ? 'var(--accent-green)' : stage.status === 'active' ? 'var(--accent-purple)' : 'rgba(255,255,255,0.08)'} 
+                        strokeWidth="3" 
+                        strokeDasharray={stage.status === 'active' ? '5,5' : 'none'}
+                        className={stage.status === 'active' ? 'dash-pulse' : ''}
+                      />
+                    </svg>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </section>
+        </div>
+      </div>
 
-        {/* Right Column: AI Operations Analysis */}
-        <section className="dashboard-card ai-card">
-          <div className="card-header">
-            <svg className="card-icon glow-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
-              <circle cx="12" cy="12" r="4"></circle>
-            </svg>
-            <h2>Gemini AIOps Log & Config Analyzer</h2>
-          </div>
-
-          <div className="template-bar">
-            <span className="bar-label">Pre-filled Templates:</span>
-            <div className="template-buttons">
-              <button type="button" className="btn-tab" onClick={() => loadTemplate('kubernetes')}>Kubernetes OOM</button>
-              <button type="button" className="btn-tab" onClick={() => loadTemplate('terraform')}>Terraform ACL</button>
-              <button type="button" className="btn-tab" onClick={() => loadTemplate('jenkins')}>Jenkins Daemon</button>
-              <button type="button" className="btn-tab" onClick={() => loadTemplate('prometheus')}>Prometheus Alert</button>
-            </div>
-          </div>
-
-          <div className="ai-control-group">
-            <div className="input-group inline-group">
-              <label>Context Type</label>
-              <select value={contextType} onChange={(e) => setContextType(e.target.value)}>
-                <option value="logs">Application/Build Logs</option>
-                <option value="kubernetes">Kubernetes Manifests</option>
-                <option value="terraform">Terraform IaC</option>
-                <option value="metrics">Prometheus Metrics / Alert JSON</option>
-              </select>
+      {/* Main Grid: 3-column Cockpit panel */}
+      <div className="dashboard-grid cockpit-grid">
+        
+        {/* Column 1: DB Action items, IaC controls, Security audits */}
+        <div className="grid-column">
+          
+          {/* Section: DevOps Action Items Database */}
+          <section className="dashboard-card db-card compact-card">
+            <div className="card-header">
+              <svg className="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path>
+              </svg>
+              <h2>PostgreSQL Task Coordinator (CRUD)</h2>
             </div>
             
-            <div className="input-group">
-              <label>Raw Log / Code Input</label>
-              <textarea
-                placeholder="Paste your Kubernetes yaml, Terraform code, or build log here..."
-                value={logInput}
-                onChange={(e) => setLogInput(e.target.value)}
-                rows={8}
-              />
-            </div>
+            {dbError && (
+              <div className="alert alert-error">
+                <strong>DB Error:</strong> {dbError}
+                <button className="btn-retry" onClick={fetchDbItems}>Retry</button>
+              </div>
+            )}
 
-            <button 
-              type="button" 
-              className="btn-ai" 
-              onClick={handleAnalyze} 
-              disabled={aiLoading || !logInput.trim()}
-            >
-              {aiLoading ? (
-                <>
-                  <span className="spinner-ai"></span>
-                  Analyzing via Gemini AI...
-                </>
-              ) : (
-                'Run Gemini AI Diagnostics'
+            <form onSubmit={handleAddItem} className="db-form-compact">
+              <div className="form-fields-grid">
+                <input 
+                  type="text" 
+                  placeholder="Define action item..." 
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  required
+                />
+                <select value={newItemAssignee} onChange={(e) => setNewItemAssignee(e.target.value)}>
+                  <option value="Humesh">Humesh (Lead)</option>
+                  <option value="Alice">Alice (SecOps)</option>
+                  <option value="Bob">Bob (Infra)</option>
+                  <option value="Charlie">Charlie (Dev)</option>
+                </select>
+                <select value={newItemPriority} onChange={(e) => setNewItemPriority(e.target.value)}>
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+                <button type="submit" className="btn-primary" disabled={dbLoading}>
+                  {dbLoading ? 'Saving...' : 'Add'}
+                </button>
+              </div>
+            </form>
+
+            <div className="items-list-container scrollable-panel-content">
+              <ul className="items-list compact-list">
+                {dbLoading && <div className="spinner-small"></div>}
+                {!dbLoading && dbItems.length === 0 && (
+                  <p className="no-items-text">No action items found in local PostgreSQL.</p>
+                )}
+                {dbItems.map((item) => {
+                  const meta = parseDescription(item.description);
+                  return (
+                    <li key={item.id} className="item-row compact-row">
+                      <div className="item-main">
+                        <span className="item-name">{item.name}</span>
+                        <div className="item-meta-tags">
+                          <span className={`tag-assignee`}>👤 {meta.assignee}</span>
+                          <span className={`tag-priority priority-${meta.priority.toLowerCase()}`}>
+                            {meta.priority}
+                          </span>
+                        </div>
+                      </div>
+                      <button 
+                        className="btn-delete-task" 
+                        onClick={() => handleDeleteItem(item.id)} 
+                        title="Remove task from DB"
+                      >
+                        ✓ Done
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </section>
+
+          {/* Section: IaC Cost & Security Governance (Terraform) */}
+          <section className="dashboard-card iac-card">
+            <div className="card-header">
+              <svg className="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
+              <h2>IaC Terraform Cost & Compliance</h2>
+            </div>
+            <div className="iac-status-dashboard scrollable-panel-content">
+              <div className="iac-actions-strip">
+                <button 
+                  className={`btn-tab ${tfApproved ? 'approved-active' : ''}`}
+                  onClick={() => setTfApproved(prev => !prev)}
+                >
+                  {tfApproved ? '✓ Cost Approved' : '⚠ Approve Cost Plan'}
+                </button>
+                <button 
+                  className={`btn-tab ${tfLock ? 'locked-active' : ''}`}
+                  onClick={() => setTfLock(prev => !prev)}
+                >
+                  {tfLock ? '🔒 State Locked' : '🔓 State Unlocked'}
+                </button>
+              </div>
+
+              <div className="iac-metric-row">
+                <span className="iac-lbl">State Status</span>
+                <span className={`iac-val ${tfLock ? 'green-text' : 'orange-text'}`}>
+                  {tfLock ? '✓ Secure Lock Active' : '⚠ State Write Available'}
+                </span>
+              </div>
+              <div className="iac-metric-row">
+                <span className="iac-lbl">Infracost Monthly Cost</span>
+                <span className="iac-val purple-text">$204.10 / mo</span>
+              </div>
+              <div className="iac-metric-row">
+                <span className="iac-lbl">S3 Audit Protection</span>
+                <span className="iac-val red-text">✗ Block Public Blocked</span>
+              </div>
+              
+              <div className="infracost-visual-delta">
+                <div className="infracost-bar-label">
+                  <span>Infracost Proposed Delta</span>
+                  <span className="delta-val red-text">+$61.60</span>
+                </div>
+                <div className="cost-progress-bar">
+                  <div className="base-bar" style={{ width: '70%' }} title="Baseline: $142.50"></div>
+                  <div className="proposed-bar" style={{ width: '30%' }} title="Proposed Addition: $61.60"></div>
+                </div>
+                <span className="cost-bar-legend">Base ($142.50) + Sensitive AWS S3 ($61.60)</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Section: Security Audit & CVE Compliance (NEW) */}
+          <section className="dashboard-card security-cve-card">
+            <div className="card-header">
+              <svg className="card-icon color-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+              <h2>CVE Security Audit & Compliance</h2>
+            </div>
+            <div className="security-dashboard-content scrollable-panel-content">
+              <div className="security-scan-header">
+                <div className="scan-timestamp-group">
+                  <span className="sec-lbl">Last Trivy Audit:</span>
+                  <span className="sec-val">{lastCveScanTime}</span>
+                </div>
+                <button 
+                  className={`btn-tab btn-sec-scan ${isCveScanning ? 'scanning' : ''}`}
+                  onClick={handleTriggerCveScan}
+                  disabled={isCveScanning}
+                >
+                  {isCveScanning ? 'Auditing...' : '🛡 Run CVE Audit'}
+                </button>
+              </div>
+
+              <div className="cve-grid-counts">
+                <div className="cve-box critical">
+                  <span className="cve-num">{cveCounts.critical}</span>
+                  <span className="cve-lbl">Critical</span>
+                </div>
+                <div className="cve-box high">
+                  <span className="cve-num">{cveCounts.high}</span>
+                  <span className="cve-lbl">High</span>
+                </div>
+                <div className="cve-box medium">
+                  <span className="cve-num">{cveCounts.medium}</span>
+                  <span className="cve-lbl">Medium</span>
+                </div>
+                <div className="cve-box low">
+                  <span className="cve-num">{cveCounts.low}</span>
+                  <span className="cve-lbl">Low</span>
+                </div>
+              </div>
+
+              <div className="compliance-progress-bar">
+                <div className="progress-label-row">
+                  <span>Quality Gate: <strong>PASSED</strong></span>
+                  <span>92.4% Coverage</span>
+                </div>
+                <div className="sec-progress-track">
+                  <div className="sec-progress-fill" style={{ width: '92.4%' }}></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+        {/* Column 2: Pipeline Inspector, GitOps ArgoCD, Jenkins History */}
+        <div className="grid-column">
+          
+          {/* Section: DevOps Pipeline Inspector */}
+          <section className="dashboard-card logs-card">
+            <div className="card-header">
+              <svg className="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="4" y1="9" x2="20" y2="9"></line>
+                <line x1="4" y1="15" x2="20" y2="15"></line>
+                <line x1="10" y1="3" x2="8" y2="21"></line>
+                <line x1="16" y1="3" x2="14" y2="21"></line>
+              </svg>
+              <h2>Pipeline Console Logs - {selectedStage.label}</h2>
+            </div>
+            
+            <div className="log-viewer-pane">
+              <div className="log-header">
+                <span className="log-title">Standard Output Stdout</span>
+                <span className="status-badge status-pill" style={{ backgroundColor: selectedStage.color }}>
+                  {selectedStage.status.toUpperCase()}
+                </span>
+              </div>
+              <pre className="log-output-pre">
+                <code>{pipelineLog}</code>
+                <div ref={logEndRef} />
+              </pre>
+            </div>
+          </section>
+
+          {/* Section: GitOps ArgoCD Sync Tree (NEW) */}
+          <section className="dashboard-card argocd-card">
+            <div className="card-header">
+              <svg className="card-icon color-argo" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+              </svg>
+              <h2>GitOps ArgoCD Reconciliation Tree</h2>
+            </div>
+            
+            <div className="argo-dashboard-content scrollable-panel-content">
+              <div className="argo-controls-strip">
+                <div className="argo-status-labels">
+                  <span className={`status-badge sync-${argoSyncStatus.toLowerCase()}`}>{argoSyncStatus}</span>
+                  <span className={`status-badge health-${argoHealthStatus.toLowerCase()}`}>{argoHealthStatus}</span>
+                </div>
+                <button 
+                  className={`btn-tab btn-sync-argo ${isArgoSyncing ? 'syncing' : ''}`}
+                  onClick={handleTriggerArgoSync}
+                  disabled={isArgoSyncing}
+                >
+                  {isArgoSyncing ? 'Syncing...' : '↻ GitOps Re-Sync'}
+                </button>
+              </div>
+
+              <div className="argo-layout-container">
+                <div className="argo-tree-column">
+                  <h4>Application Root</h4>
+                  {renderArgoNode('Application', 'omega-enterprise-app', argoSyncStatus.toLowerCase())}
+                </div>
+                
+                <div className="argo-tree-arrow">➔</div>
+                
+                <div className="argo-tree-column">
+                  <h4>Kubernetes Resources</h4>
+                  {renderArgoNode('Deployment', 'omega-backend-deployment', argoHealthStatus.toLowerCase())}
+                  {renderArgoNode('Service', 'omega-backend-svc', 'healthy')}
+                  {renderArgoNode('Ingress', 'omega-ingressgateway', 'healthy')}
+                </div>
+              </div>
+
+              {selectedArgoResource && (
+                <div className="argo-resource-detail-box">
+                  <h5>Selected: {selectedArgoResource} Schema</h5>
+                  <pre className="font-mono-logs">
+                    {selectedArgoResource === 'Application' && `source: \n  repoURL: https://github.com/humesh/omega.git\n  targetRevision: HEAD\n  path: k8s/base\ndestination:\n  server: https://kubernetes.default.svc\n  namespace: default`}
+                    {selectedArgoResource === 'Deployment' && `spec:\n  replicas: 4\n  strategy:\n    type: RollingUpdate\n  template:\n    spec:\n      containers:\n      - name: backend\n        image: omega-backend:1.2-rc1`}
+                    {selectedArgoResource === 'Service' && `spec:\n  ports:\n  - port: 8000\n    targetPort: 8000\n  selector:\n    app: omega-backend`}
+                    {selectedArgoResource === 'Ingress' && `spec:\n  rules:\n  - host: omega.enterprise.internal\n    http:\n      paths:\n      - path: /api\n        backend: \n          serviceName: omega-backend`}
+                  </pre>
+                </div>
               )}
-            </button>
+            </div>
+          </section>
+
+          {/* Section: Jenkins Build History (NEW) */}
+          <section className="dashboard-card jenkins-card">
+            <div className="card-header">
+              <svg className="card-icon color-jenkins" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="9" cy="9" r="2"></circle>
+                <circle cx="15" cy="9" r="2"></circle>
+                <path d="M9 15c1.5 1 4.5 1 6 0"></path>
+              </svg>
+              <h2>Jenkins CI Build Run Log History</h2>
+            </div>
+            <div className="jenkins-dashboard-content scrollable-panel-content">
+              <div className="jenkins-actions-header">
+                <span className="builds-count">{jenkinsBuilds.length} builds recorded</span>
+                <button 
+                  className={`btn-tab btn-build-jenkins ${isJenkinsBuilding ? 'building' : ''}`}
+                  onClick={handleTriggerJenkinsBuild}
+                  disabled={isJenkinsBuilding}
+                >
+                  {isJenkinsBuilding ? 'Building #25...' : '⚒ Trigger Jenkins Build'}
+                </button>
+              </div>
+
+              <div className="jenkins-table-wrapper">
+                <table className="jenkins-table">
+                  <thead>
+                    <tr>
+                      <th>Build</th>
+                      <th>Branch</th>
+                      <th>Commit</th>
+                      <th>Duration</th>
+                      <th>Trigger Time</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jenkinsBuilds.map((build, idx) => (
+                      <tr key={idx} className={build.status === 'SUCCESS' ? 'row-success' : build.status === 'FAILURE' ? 'row-fail' : 'row-running'}>
+                        <td className="build-id-td">{build.id}</td>
+                        <td>{build.branch}</td>
+                        <td className="font-mono-tag">{build.commit}</td>
+                        <td>{build.duration}</td>
+                        <td className="build-date-td">{build.date}</td>
+                        <td>
+                          <span className={`status-pill ${build.status.toLowerCase()}`}>{build.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+        {/* Column 3: Canary Controller, K8s Pods, Gemini AI Hub */}
+        <div className="grid-column">
+          
+          {/* Section: Istio Service Mesh Canary traffic split (NEW) */}
+          <section className="dashboard-card istio-card">
+            <div className="card-header">
+              <svg className="card-icon color-mesh" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="4"></circle>
+                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+              </svg>
+              <h2>Istio VirtualService Traffic Shifter</h2>
+            </div>
+            <div className="istio-dashboard-content scrollable-panel-content">
+              <div className="canary-slider-wrapper">
+                <div className="canary-labels">
+                  <span className="v-tag">Stable (v1.1): <strong>{100 - canarySplit}%</strong></span>
+                  <span className="v-tag canary">Canary (v1.2): <strong>{canarySplit}%</strong></span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  value={canarySplit} 
+                  onChange={(e) => setCanarySplit(parseInt(e.target.value))} 
+                  className="canary-slider"
+                />
+              </div>
+
+              {canarySplit > 80 && (
+                <div className="canary-danger-alert animate-shake">
+                  💥 <strong>WARNING:</strong> Split ratios above 80% on v1.2-canary are causing high simulated failure rates (up to 15%)! Dial back traffic or run AIOps diagnostics.
+                </div>
+              )}
+
+              <div className="mesh-virtualservice-preview">
+                <h5>networking.istio.io/v1beta1 Route Weight</h5>
+                <pre className="vs-yaml-pre">
+{`- destination:
+    host: omega-backend
+    subset: v1
+  weight: ${100 - canarySplit}
+- destination:
+    host: omega-backend
+    subset: v2
+  weight: ${canarySplit}`}
+                </pre>
+              </div>
+            </div>
+          </section>
+
+          {/* Section: Kubernetes Resources (Pods Monitor) */}
+          <section className="dashboard-card k8s-card">
+            <div className="card-header">
+              <svg className="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+                <line x1="15" y1="3" x2="15" y2="21"></line>
+                <line x1="3" y1="9" x2="21" y2="9"></line>
+                <line x1="3" y1="15" x2="21" y2="15"></line>
+              </svg>
+              <h2>K8s Cluster Node Pods Monitor</h2>
+            </div>
+            
+            <div className="k8s-pods-table-wrapper scrollable-panel-content">
+              <span className="table-caption-lbl">Click on any pod name to stream real-time events container logs:</span>
+              <table className="k8s-table">
+                <thead>
+                  <tr>
+                    <th>Pod Name</th>
+                    <th>Ready</th>
+                    <th>Status</th>
+                    <th>CPU</th>
+                    <th>Mem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {podsList.map((pod, idx) => (
+                    <tr 
+                      key={idx} 
+                      onClick={() => handlePodClick(pod)} 
+                      className={`pod-row-interactive ${selectedPod === pod.name ? 'active-pod-row' : ''}`}
+                    >
+                      <td className="pod-name-td">📦 {pod.name}</td>
+                      <td>{pod.ready}</td>
+                      <td>
+                        <span className={`status-pill ${pod.statusClass}`}>{pod.status}</span>
+                      </td>
+                      <td className="font-mono-tag">{pod.cpu}</td>
+                      <td className="font-mono-tag">{pod.mem}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* Section: Gemini AIOps Diagnostic Hub */}
+          <section className="dashboard-card ai-card cockpit-ai">
+            <div className="card-header">
+              <svg className="card-icon glow-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+                <circle cx="12" cy="12" r="4"></circle>
+              </svg>
+              <h2>Gemini AIOps Intelligent diagnostics</h2>
+            </div>
+
+            <div className="template-bar">
+              <span className="bar-label">Incorporate Template:</span>
+              <div className="template-buttons">
+                <button type="button" className="btn-tab" onClick={() => loadTemplate('kubernetes')}>K8s OOM</button>
+                <button type="button" className="btn-tab" onClick={() => loadTemplate('terraform')}>TF S3</button>
+                <button type="button" className="btn-tab" onClick={() => loadTemplate('jenkins')}>Jenkins</button>
+                <button type="button" className="btn-tab" onClick={() => loadTemplate('prometheus')}>Latency</button>
+              </div>
+            </div>
+
+            <div className="ai-control-group scrollable-panel-content">
+              <div className="input-group inline-group select-compact">
+                <label>Context Parameter</label>
+                <select value={contextType} onChange={(e) => setContextType(e.target.value)}>
+                  <option value="logs">Logs Analyzer</option>
+                  <option value="kubernetes">Kubernetes Node</option>
+                  <option value="terraform">IaC Terraform</option>
+                  <option value="metrics">Prometheus Metrics</option>
+                </select>
+              </div>
+              
+              <div className="input-group text-compact">
+                <textarea
+                  placeholder="Paste error logs, yaml configuration files, or metrics dump..."
+                  value={logInput}
+                  onChange={(e) => setLogInput(e.target.value)}
+                  rows={3}
+                />
+              </div>
+
+              <button 
+                type="button" 
+                className="btn-ai" 
+                onClick={handleAnalyze} 
+                disabled={aiLoading || !logInput.trim()}
+              >
+                {aiLoading ? (
+                  <>
+                    <span className="spinner-ai"></span>
+                    Running Diagnostics Analysis...
+                  </>
+                ) : (
+                  'Run Gemini AI Diagnostics'
+                )}
+              </button>
+            </div>
+
+            {aiError && (
+              <div className="alert alert-error">
+                <strong>Error:</strong> {aiError}
+              </div>
+            )}
+
+            {aiStreamingText && (
+              <div className="ai-output-container cockpit-output">
+                <div className="output-header">
+                  <span className="output-title">🤖 Gemini Diagnostic Report</span>
+                  {aiModel && <span className="model-badge">{aiModel}</span>}
+                </div>
+                <div className="output-content">
+                  {renderMarkdown(aiStreamingText)}
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+
+      </div>
+
+      {/* Pod Logs Events Stream Slide-out Drawer */}
+      <div className={`pod-drawer-overlay ${isPodDrawerOpen ? 'open' : ''}`} onClick={() => setIsPodDrawerOpen(false)}>
+        <div className="pod-drawer-content" onClick={(e) => e.stopPropagation()}>
+          <div className="drawer-header">
+            <div className="drawer-header-left">
+              <span className="drawer-pulse"></span>
+              <h3>Live Container Console Stream: <code>{selectedPod}</code></h3>
+            </div>
+            <button className="btn-close-drawer" onClick={() => setIsPodDrawerOpen(false)}>✕ Close Terminal</button>
           </div>
-
-          {aiError && (
-            <div className="alert alert-error">
-              <strong>Gemini API Error:</strong> {aiError}
-            </div>
-          )}
-
-          {aiResponse && (
-            <div className="ai-output-container">
-              <div className="output-header">
-                <span className="output-title">🤖 Gemini Diagnostic Insights</span>
-                {aiModel && <span className="model-badge">Model: {aiModel}</span>}
-              </div>
-              <div className="output-content">
-                {renderMarkdown(aiResponse)}
-              </div>
-            </div>
-          )}
-        </section>
-
-      </main>
+          <div className="drawer-body">
+            <pre className="drawer-terminal-logs">
+              {podLogs.map((log, index) => (
+                <div key={index} className="log-line">{log}</div>
+              ))}
+              <div ref={podLogEndRef} />
+            </pre>
+          </div>
+        </div>
+      </div>
 
       {/* Footer */}
       <footer className="app-footer">
-        <p>© 2026 Omega DevOps Framework. Powered by Google Gemini and Enterprise-grade microservices.</p>
+        <p>© 2026 Omega DevOps Framework. Powered by Google Gemini and enterprise local microservices.</p>
       </footer>
     </div>
   );
