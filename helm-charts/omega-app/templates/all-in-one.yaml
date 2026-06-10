@@ -1,0 +1,84 @@
+# Backend
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-backend
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        # Enables automatic Istio sidecar injection for this pod
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+      - name: backend
+        image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://user:password@db:5432/omega_db"
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: omega-gemini-secret
+              key: GEMINI_API_KEY
+              optional: true
+        - name: GEMINI_MODEL
+          valueFrom:
+            secretKeyRef:
+              name: omega-gemini-secret
+              key: GEMINI_MODEL
+              optional: true
+        ports:
+        - containerPort: {{ .Values.backend.servicePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: {{ .Values.backend.servicePort }}
+    targetPort: {{ .Values.backend.servicePort }}
+
+---
+# Frontend
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-frontend
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        # Enables automatic Istio sidecar injection for this pod
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+      - name: frontend
+        image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+        ports:
+        - containerPort: {{ .Values.frontend.servicePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  type: LoadBalancer
+  selector:
+    app: frontend
+  ports:
+  - port: {{ .Values.frontend.servicePort }}
+    targetPort: {{ .Values.frontend.servicePort }}

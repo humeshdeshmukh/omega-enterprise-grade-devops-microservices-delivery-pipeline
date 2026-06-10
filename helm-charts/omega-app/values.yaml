@@ -1,0 +1,13 @@
+replicaCount: 2
+
+backend:
+  image:
+    repository: localhost:5000/omega-backend
+    tag: "latest"
+  servicePort: 8000
+
+frontend:
+  image:
+    repository: localhost:5000/omega-frontend
+    tag: "latest"
+  servicePort: 80

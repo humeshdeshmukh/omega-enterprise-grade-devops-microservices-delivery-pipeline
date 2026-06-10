@@ -1,0 +1,6 @@
+apiVersion: v2
+name: omega-app
+description: A Helm chart for Kubernetes deployment of the Omega Microservices application
+type: application
+version: 0.1.0
+appVersion: "1.1.0"

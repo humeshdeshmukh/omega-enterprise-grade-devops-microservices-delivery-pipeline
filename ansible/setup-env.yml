@@ -1,0 +1,36 @@
+---
+- name: Setup Omega DevOps Local Environment
+  hosts: localhost
+  connection: local
+  become: yes
+  tasks:
+    - name: Ensure Minikube is installed
+      command: minikube version
+      register: minikube_check
+      ignore_errors: true
+
+    - name: Print warning if Minikube is missing
+      debug:
+        msg: "Minikube is not installed! Please install it."
+      when: minikube_check.rc != 0
+
+    - name: Ensure Docker is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Ensure Helm is installed
+      command: helm version
+      register: helm_check
+      ignore_errors: true
+
+    - name: Print warning if Helm is missing
+      debug:
+        msg: "Helm is not installed! Please install it."
+      when: helm_check.rc != 0
+
+    - name: Run cluster setup script
+      command: ./scripts/setup-cluster.sh
+      args:
+        chdir: "{{ playbook_dir }}/.."

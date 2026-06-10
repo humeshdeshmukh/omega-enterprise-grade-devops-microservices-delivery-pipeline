@@ -1,0 +1,17 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: aws-sqs-queue-scaledobject
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: backend # Points to our backend deployment
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  triggers:
+  - type: aws-sqs-queue
+    metadata:
+      queueURL: http://localhost:4566/000000000000/omega-processing-queue
+      queueLength: "5"
+      awsRegion: "us-east-1"
+      # In a real environment, KEDA needs AWS credentials to check the queue length.
