@@ -3,6 +3,30 @@ set -e
 
 echo "🚀 Starting Omega DevOps Environment..."
 
+# Check if offline/local flag is passed
+OFFLINE_MODE=false
+for arg in "$@"; do
+  if [ "$arg" = "--local" ] || [ "$arg" = "--offline" ]; then
+    OFFLINE_MODE=true
+  fi
+done
+
+# If not explicitly set, auto-detect connectivity
+if [ "$OFFLINE_MODE" = "false" ]; then
+  echo "Checking network connectivity..."
+  if ! curl -s --connect-timeout 4 https://github.com > /dev/null; then
+    echo "⚠️  Internet connection is unreachable."
+    OFFLINE_MODE=true
+  fi
+fi
+
+if [ "$OFFLINE_MODE" = "true" ]; then
+  echo "📴 Running in OFFLINE/LOCAL mode."
+  echo "👉 Skipping Kubernetes cluster setup and external tool installations."
+else
+  echo "📶 Running in ONLINE mode. Proceeding with full cluster setup."
+fi
+
 # Verify .env configuration
 if [ ! -f .env ]; then
   echo "⚠️  .env file not found. Creating from .env.example..."
@@ -31,9 +55,19 @@ docker-compose -f docker-compose-local-env.yml up -d
 docker-compose up -d
 
 # 2. Setup Kubernetes Cluster
-echo "Initializing Kubernetes Cluster and tools..."
-./scripts/setup-cluster.sh
+if [ "$OFFLINE_MODE" = "false" ]; then
+  echo "Initializing Kubernetes Cluster and tools..."
+  ./scripts/setup-cluster.sh
+else
+  echo "⏭️  Skipped Kubernetes cluster setup (offline/local mode)."
+fi
 
 echo "✅ Environment is running!"
-echo "Jenkins is available at: http://localhost:8080"
-echo "LocalStack is available at: http://localhost:4566"
+echo "--------------------------------------------------"
+echo "Vite Frontend: http://localhost:80"
+echo "FastAPI Backend: http://localhost:8000"
+echo "Jenkins CI/CD: http://localhost:8080"
+echo "SonarQube Quality Gate: http://localhost:9000"
+echo "Nexus Artifact Repository: http://localhost:8081"
+echo "LocalStack AWS Mock: http://localhost:4566"
+echo "--------------------------------------------------"
