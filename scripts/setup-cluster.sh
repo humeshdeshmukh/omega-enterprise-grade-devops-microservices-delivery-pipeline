@@ -36,7 +36,7 @@ echo "📊 Installing Prometheus and Grafana..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
 helm repo update
 kubectl create namespace monitoring || true
-helm upgrade --install monitoring prometheus-community/kube-prometheus-stack --namespace monitoring
+helm upgrade --install monitoring prometheus-community/kube-prometheus-stack --namespace monitoring --timeout 15m0s
 
 # 5. Apply Custom Grafana Dashboard ConfigMap
 echo "📉 Injecting Custom Grafana Dashboard..."
