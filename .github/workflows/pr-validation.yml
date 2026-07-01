@@ -8,7 +8,7 @@ jobs:
   backend-checks:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
@@ -28,7 +28,7 @@ jobs:
   infracost:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Infracost
         uses: infracost/actions/setup@v4
         with:
@@ -49,7 +49,7 @@ jobs:
   checkov:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Checkov Terraform Scanner
         uses: bridgecrewio/checkov-action@master
         with:
@@ -60,7 +60,7 @@ jobs:
   frontend-checks:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Use Node.js
       uses: actions/setup-node@v6
       with:
